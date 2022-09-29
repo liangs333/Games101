@@ -26,7 +26,11 @@ Eigen::Matrix4f get_model_matrix(float rotation_angle)
     // TODO: Implement this function
     // Create the model matrix for rotating the triangle around the Z axis.
     // Then return it.
-
+    float a = rotation_angle / 180.00 * MY_PI;
+    model << cos(a), -sin(a), 0, 0,
+            sin(a), cos(a), 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1;
     return model;
 }
 
@@ -41,8 +45,34 @@ Eigen::Matrix4f get_projection_matrix(float eye_fov, float aspect_ratio,
     // Create the projection matrix for the given parameters.
     // Then return it.
 
+    float n = zNear, f = zFar;
+    Eigen::Matrix4f squeeze;
+    squeeze <<  n, 0, 0, 0,
+                0, n, 0, 0,
+                0, 0, n + f, -n*f,
+                0, 0, 1, 0;
+
+    float fov = eye_fov / 180 * MY_PI;
+    float t = tan(fov / 2) * n, b = -t;
+    float r = aspect_ratio * t, l = -r;
+
+    printf("t = %f, b = %f\n", t, b);
+
+    Eigen::Matrix4f move, zip, sth;
+    move << 1, 0, 0, -(r + l) / 2,
+            0, 1, 0, -(t + b) / 2,
+            0, 0, 1, -(n + f) / 2,
+            0, 0, 0, 1;
+
+    zip <<  2 / (r - l), 0, 0, 0,
+            0, 2 / (t - b), 0, 0,
+            0, 0, 2 / (n - f), 0,
+            0, 0, 0, 1;
+    sth = move * squeeze;
+    projection = zip * sth;
     return projection;
 }
+
 
 int main(int argc, const char** argv)
 {
@@ -80,11 +110,9 @@ int main(int argc, const char** argv)
         r.set_model(get_model_matrix(angle));
         r.set_view(get_view_matrix(eye_pos));
         r.set_projection(get_projection_matrix(45, 1, 0.1, 50));
-
         r.draw(pos_id, ind_id, rst::Primitive::Triangle);
         cv::Mat image(700, 700, CV_32FC3, r.frame_buffer().data());
         image.convertTo(image, CV_8UC3, 1.0f);
-
         cv::imwrite(filename, image);
 
         return 0;

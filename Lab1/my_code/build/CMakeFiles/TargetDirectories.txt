@@ -1,0 +1,3 @@
+/home/cs18/Games101Labs/Lab1/my_code/build/CMakeFiles/rebuild_cache.dir
+/home/cs18/Games101Labs/Lab1/my_code/build/CMakeFiles/Rasterizer.dir
+/home/cs18/Games101Labs/Lab1/my_code/build/CMakeFiles/edit_cache.dir
