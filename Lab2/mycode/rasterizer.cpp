@@ -126,21 +126,41 @@ void rst::rasterizer::rasterize_triangle(const Triangle& t) {
     // TODO : Find out the bounding box of current triangle.
     // iterate through the pixel and find if the current pixel is inside the triangle
 
-    for(int nx = xmi; nx <= xma; ++nx) {
+    float dx[] = {0.25, 0.25, 0.75, 0.75};
+    float dy[] = {0.25, 0.75, 0.25, 0.75};
+    
+    for(int nx = xmi; nx <= xma; ++nx) { 
         for(int ny = ymi; ny <= yma; ++ny) { 
-            float x = nx + 0.5, y = ny + 0.5;
-            float alpha, beta, gamma;
-            if(insideTriangle(nx, ny, t.v)) {
-                std::tie(alpha, beta, gamma) = computeBarycentric2D(x, y, t.v);
-                float w_reciprocal = 1.0/(alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
-                float z_interpolated = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
-                z_interpolated *= w_reciprocal;
-
-                if(depth_buf[get_index(nx, ny)] > z_interpolated) {
-                    depth_buf[get_index(nx, ny)] = z_interpolated;
-                    Vector3f targetPoint(nx, ny, z_interpolated);
-                    set_pixel(targetPoint, t.getColor());
-                }
+            float xis = 0, midep = 123123123123;
+            Eigen::Vector3f ncolor(0, 0, 0);
+            for(int k = 0; k < 4; ++k) { 
+                float x = nx + dx[k], y = ny + dy[k];
+                float alpha, beta, gamma;
+                int index = get_sample_index(nx, ny, k);
+                if(insideTriangle(x, y, t.v)) { 
+                    std::tie(alpha, beta, gamma) = computeBarycentric2D(x, y, t.v);
+                    float w_reciprocal = 1.0/(alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
+                    float z_interpolated = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
+                    z_interpolated *= w_reciprocal;
+                    midep = min(midep, z_interpolated);
+//                    printf("index = %d\n", index);
+                    if(sample_depth_buf[index] > z_interpolated) {
+                        sample_depth_buf[index] = z_interpolated;
+                        sample_buf[index] = t.getColor();
+                        ncolor += 0.25 * t.getColor();
+                    }
+                    else {
+                        ncolor += 0.25 * sample_buf[index];
+                    }
+                } 
+                else { 
+                    ncolor += 0.25 * sample_buf[index];
+                } 
+            } 
+            if(depth_buf[get_index(nx, ny)] > midep && ncolor.x() > 0.01) {
+                depth_buf[get_index(nx, ny)] = midep;
+                Vector3f targetPoint(nx, ny, 1);
+                set_pixel(targetPoint, ncolor);
             }
         } 
     }
@@ -186,11 +206,18 @@ rst::rasterizer::rasterizer(int w, int h) : width(w), height(h)
 {
     frame_buf.resize(w * h);
     depth_buf.resize(w * h);
+    sample_buf.resize(w * h * 4);
+    sample_depth_buf.resize(w * h * 4);
 }
 
 int rst::rasterizer::get_index(int x, int y)
 {
     return (height-1-y)*width + x;
+}
+
+int rst::rasterizer::get_sample_index(int x, int y, int k) {
+    int oriIndex = (height-1-y)*width + x;
+    return oriIndex * 4 + k;
 }
 
 void rst::rasterizer::set_pixel(const Eigen::Vector3f& point, const Eigen::Vector3f& color)
