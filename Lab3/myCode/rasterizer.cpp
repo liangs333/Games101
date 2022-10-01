@@ -172,10 +172,14 @@ static std::tuple<float, float, float> computeBarycentric2D(float x, float y, co
 
 void rst::rasterizer::draw(std::vector<Triangle *> &TriangleList) {
 
+    //这50和0.1是zfar和znear吗
     float f1 = (50 - 0.1) / 2.0;
     float f2 = (50 + 0.1) / 2.0;
 
+    //一发mvp矩阵
     Eigen::Matrix4f mvp = projection * view * model;
+
+    //从list里取出一个三角形
     for (const auto& t:TriangleList)
     {
         Triangle newtri = *t;
@@ -185,9 +189,9 @@ void rst::rasterizer::draw(std::vector<Triangle *> &TriangleList) {
                 (view * model * t->v[1]),
                 (view * model * t->v[2])
         };
+        //mm里面装的是经历mv变换，还没有经过投影之后的东西
 
         std::array<Eigen::Vector3f, 3> viewspace_pos;
-
         std::transform(mm.begin(), mm.end(), viewspace_pos.begin(), [](auto& v) {
             return v.template head<3>();
         });
@@ -197,43 +201,59 @@ void rst::rasterizer::draw(std::vector<Triangle *> &TriangleList) {
                 mvp * t->v[1],
                 mvp * t->v[2]
         };
-        //Homogeneous division
+        //现在里面装的是mvp变换之后的点坐标了。
+
+
+        //Homogeneous division， 处理成齐次坐标
         for (auto& vec : v) {
             vec.x()/=vec.w();
             vec.y()/=vec.w();
             vec.z()/=vec.w();
         }
 
+
         Eigen::Matrix4f inv_trans = (view * model).inverse().transpose();
+        //inv_trans是mv变换的逆变换
+
         Eigen::Vector4f n[] = {
                 inv_trans * to_vec4(t->normal[0], 0.0f),
                 inv_trans * to_vec4(t->normal[1], 0.0f),
                 inv_trans * to_vec4(t->normal[2], 0.0f)
+                //法向量，在只经历了MV变换之后的空间中，因为P即投影会压缩Z。
+                //光线作用也是发生在
         };
 
         //Viewport transformation
+        //进行了一个视口变化
+
         for (auto & vert : v)
         {
+            //
             vert.x() = 0.5*width*(vert.x()+1.0);
             vert.y() = 0.5*height*(vert.y()+1.0);
             vert.z() = vert.z() * f1 + f2;
+            //这一步之后Z已经烂掉了，不能用来作为分析光照情况的数据了。
+            //v存的是在[-1, 1]^3里面的坐标，只能用来setPixel的那种，不能参与任何计算啥的
         }
 
         for (int i = 0; i < 3; ++i)
         {
             //screen space coordinates
             newtri.setVertex(i, v[i]);
+            //把经过变化之后的三角形的坐标塞进去
         }
 
         for (int i = 0; i < 3; ++i)
         {
             //view space normal
             newtri.setNormal(i, n[i].head<3>());
+            //顶点法向量？
         }
 
         newtri.setColor(0, 148,121.0,92.0);
         newtri.setColor(1, 148,121.0,92.0);
         newtri.setColor(2, 148,121.0,92.0);
+        //设置颜色
 
         // Also pass view space vertice position
         rasterize_triangle(newtri, viewspace_pos);
@@ -259,15 +279,62 @@ static Eigen::Vector2f interpolate(float alpha, float beta, float gamma, const E
 //Screen space rasterization
 void rst::rasterizer::rasterize_triangle(const Triangle& t, const std::array<Eigen::Vector3f, 3>& view_pos) 
 {
+
+    //其中view_pos是正经坐标，T是压缩之后的坐标
+    using namespace std;
+    auto v = t.toVector4();
+    int xmi = 0x3f3f3f3f, xma = -xmi;
+    int ymi = xmi, yma = xma;
+
+    for(int i = 0; i < 3; ++i) { 
+        xmi = min(xmi, (int)v[i].x());
+        xma = max(xma, (int)v[i].x());
+        ymi = min(ymi, (int)v[i].y());
+        yma = max(yma, (int)v[i].y());
+    }
+
+//    printf("%d %d %d %d\n", xmi, xma, ymi, yma);
+
+    for(int itx = xmi; itx <= xma; ++itx) {
+        for(int ity = ymi; ity <= yma; ++ity) {
+            float fx = itx + 0.5f, fy = ity + 0.5f;
+            
+            if(!insideTriangle(fx, fy, t.v))
+                continue;
+
+            float alpha, beta, gamma;
+            tie(alpha, beta, gamma) = computeBarycentric2D(fx, fy, t.v);
+            //计算重心坐标
+            float Z = 1.0 / (alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
+            //不知道是算个啥
+            
+            float zp = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
+            zp *= Z;
+
+            if(zp < depth_buf[get_index(itx, ity)]) {
+                depth_buf[get_index(itx, ity)] = zp;
+                //interpolate(float alpha, float beta, float gamma, const Eigen::Vector3f& vert1, const Eigen::Vector3f& vert2, const Eigen::Vector3f& vert3, float weight)
+                auto interpolated_color = interpolate(alpha, beta, gamma, t.color[0], t.color[1], t.color[2], 1);
+                auto interpolated_normal = interpolate(alpha, beta, gamma, t.normal[0], t.normal[1], t.normal[2], 1).normalized();
+                auto interpolated_texcoords = interpolate(alpha, beta, gamma, t.tex_coords[0], t.tex_coords[1], t.tex_coords[2], 1);
+                
+                //注意不要用t
+                auto interpolated_shadingcoords = interpolate(alpha, beta, gamma, view_pos[0], view_pos[1], view_pos[2], 1);
+
+                fragment_shader_payload payload( interpolated_color, interpolated_normal.normalized(), interpolated_texcoords, texture ? &*texture : nullptr);
+                payload.view_pos = interpolated_shadingcoords;
+                auto pixel_color = fragment_shader(payload);
+                Vector2i targetPixel(itx, ity);
+                set_pixel(targetPixel, pixel_color);
+            }
+        }
+    }
+
     // TODO: From your HW3, get the triangle rasterization code.
     // TODO: Inside your rasterization loop:
     //    * v[i].w() is the vertex view space depth value z.
     //    * Z is interpolated view space depth for the current pixel
     //    * zp is depth between zNear and zFar, used for z-buffer
-
-    // float Z = 1.0 / (alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
-    // float zp = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
-    // zp *= Z;
 
     // TODO: Interpolate the attributes:
     // auto interpolated_color
@@ -282,6 +349,7 @@ void rst::rasterizer::rasterize_triangle(const Triangle& t, const std::array<Eig
 
  
 }
+
 
 void rst::rasterizer::set_model(const Eigen::Matrix4f& m)
 {
