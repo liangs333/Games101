@@ -1,0 +1,3 @@
+/home/cs18/Games101Labs/Lab5/myCode/build/CMakeFiles/rebuild_cache.dir
+/home/cs18/Games101Labs/Lab5/myCode/build/CMakeFiles/RayTracing.dir
+/home/cs18/Games101Labs/Lab5/myCode/build/CMakeFiles/edit_cache.dir
