@@ -88,6 +88,7 @@ BVHBuildNode* BVHAccel::recursiveBuild(std::vector<Object*> objects)
         node->right = recursiveBuild(rightshapes);
 
         node->bounds = Union(node->left->bounds, node->right->bounds);
+        //线段树建树，保证这玩意一定是二叉的。
     }
 
     return node;
@@ -105,5 +106,14 @@ Intersection BVHAccel::Intersect(const Ray& ray) const
 Intersection BVHAccel::getIntersection(BVHBuildNode* node, const Ray& ray) const
 {
     // TODO Traverse the BVH to find intersection
-
+    Intersection isect;
+    if(!node->bounds.IntersectP(ray, ray.direction_inv, {ray.direction.x > 0, ray.direction.y > 0, ray.direction.z > 0}))
+        return isect;
+    else if(node->left == nullptr && node->right == nullptr)
+        return node->object->getIntersection(ray);
+    else { 
+        Intersection leftIsect = getIntersection(node -> left, ray);
+        Intersection rightIsect = getIntersection(node -> right, ray);
+        return leftIsect.distance < rightIsect.distance ? leftIsect : rightIsect;
+    } 
 }

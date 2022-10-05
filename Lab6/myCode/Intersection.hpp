@@ -16,6 +16,7 @@ struct Intersection
         coords=Vector3f();
         normal=Vector3f();
         distance= std::numeric_limits<double>::max();
+        //dist初始化为inf了的
         obj =nullptr;
         m=nullptr;
     }
